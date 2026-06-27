@@ -1,0 +1,104 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "6B7BF099",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ],
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "97B9C745",
+      "localizations" : [
+
+      ],
+      "name" : "ShelfSense Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "1.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "CACF26D3",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited AI receipt scanning from any store worldwide",
+              "displayName" : "ShelfSense Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.shelfsense.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "ShelfSense Pro Monthly",
+          "subscriptionGroupID" : "97B9C745",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "14.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "496AEB81",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited AI receipt scanning — best value",
+              "displayName" : "ShelfSense Pro Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.shelfsense.pro.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "ShelfSense Pro Annual",
+          "subscriptionGroupID" : "97B9C745",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

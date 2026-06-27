@@ -7,6 +7,19 @@ struct DashboardView: View {
     @Query private var groceryItems: [GroceryItem]
     @State private var viewModel = DashboardViewModel()
     @State private var isShowingSettings = false
+    @State private var isShowingTrendDetail = false
+    @AppStorage("selected_tab")        private var selectedTab = 0
+    @AppStorage("price_compare_active") private var priceCompareActive = false
+    @AppStorage("monthly_budget")        private var monthlyBudget: Double = 0
+    @AppStorage("budget_nudge_dismissed") private var nudgeDismissed: Bool = false
+
+    private var allSavingsOpportunities: [PriceComparisonViewModel.SavingsOpportunity] {
+        PriceComparisonViewModel.topSavingsOpportunities(from: groceryItems, limit: 10)
+    }
+
+    private var totalCorrectSavings: Double {
+        allSavingsOpportunities.reduce(0) { $0 + $1.savings }
+    }
 
     var body: some View {
         NavigationStack {
@@ -16,6 +29,19 @@ struct DashboardView: View {
                     heroCard
                         .padding(.horizontal, 16)
 
+                    if monthlyBudget > 0 {
+                        budgetProgressCard
+                            .padding(.horizontal, 16)
+                    } else if !receipts.isEmpty && !nudgeDismissed {
+                        budgetNudgeCard
+                            .padding(.horizontal, 16)
+                    }
+
+                    if let projected = viewModel.projectedMonthTotal {
+                        spendPredictionRow(projected: projected)
+                            .padding(.horizontal, 16)
+                    }
+
                     statChipsRow
 
                     if !viewModel.monthlySpends.isEmpty {
@@ -23,18 +49,13 @@ struct DashboardView: View {
                         monthlyTrendCard.padding(.horizontal, 16)
                     }
 
+                    if totalCorrectSavings > 0 {
+                        unifiedSavingsCard.padding(.horizontal, 16)
+                    }
+
                     if !viewModel.storeSpends.isEmpty {
                         SectionHeader(title: "By Store")
                         storeBreakdownCard.padding(.horizontal, 16)
-                    }
-
-                    if !viewModel.categorySpends.isEmpty {
-                        SectionHeader(title: "By Category")
-                        categoryBreakdownCard.padding(.horizontal, 16)
-                    }
-
-                    if viewModel.totalSavingsOpportunity > 0 {
-                        savingsCard.padding(.horizontal, 16)
                     }
 
                     if !viewModel.priceAlertItems.isEmpty {
@@ -49,6 +70,9 @@ struct DashboardView: View {
                 }
             }
             .background(Theme.appBackground)
+            .scrollContentBackground(.hidden)
+            .toolbarBackground(Color(red: 27/255, green: 94/255, blue: 32/255), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .greenNavTitle("ShelfSense")
         }
         .overlay(alignment: .topTrailing) {
@@ -66,12 +90,171 @@ struct DashboardView: View {
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
         }
+        .fullScreenCover(isPresented: $isShowingTrendDetail) {
+            SpendingTrendDetailView(monthlySpends: viewModel.historicalMonthlySpends)
+        }
         .onChange(of: receipts, initial: true) {
             viewModel.update(receipts: receipts, groceryItems: groceryItems)
         }
         .onChange(of: groceryItems) {
             viewModel.update(receipts: receipts, groceryItems: groceryItems)
         }
+    }
+
+    // MARK: - Budget Progress Card
+
+    @ViewBuilder
+    private var budgetProgressCard: some View {
+        let spent  = viewModel.monthlySpend
+        let budget = monthlyBudget
+        let pct    = min(spent / budget, 1.0)
+        let status = viewModel.budgetStatus(for: budget)
+        let fillColor: Color = status == .exceeded ? .red
+                             : status == .approaching ? .orange
+                             : Theme.mint
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text("MONTHLY BUDGET")
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .kerning(1.0)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(.systemFill))
+                        .frame(height: 8)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(fillColor)
+                        .frame(width: max(geo.size.width * CGFloat(pct), pct > 0 ? 8 : 0), height: 8)
+                }
+            }
+            .frame(height: 8)
+
+            if status == .exceeded {
+                let overage = spent - budget
+                Text("\(spent.formatted(.currency(code: "USD"))) of \(budget.formatted(.currency(code: "USD"))) — \(overage.formatted(.currency(code: "USD"))) over budget")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.red)
+            } else {
+                Text("\(spent.formatted(.currency(code: "USD"))) of \(budget.formatted(.currency(code: "USD"))) spent this month")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color(.secondaryLabel))
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(fillColor.opacity(0.25), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            status == .exceeded
+                ? "Over budget: spent \(spent.formatted(.currency(code: "USD"))) of \(budget.formatted(.currency(code: "USD"))) monthly budget"
+                : "Budget: \(spent.formatted(.currency(code: "USD"))) of \(budget.formatted(.currency(code: "USD"))) spent this month"
+        )
+    }
+
+    // MARK: - Budget Nudge Card
+
+    private var budgetNudgeCard: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Theme.mint.opacity(0.12))
+                    .frame(width: 40, height: 40)
+                Image(systemName: "target")
+                    .font(.body)
+                    .foregroundStyle(Theme.mint)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Set a monthly budget")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(.label))
+                Text("Track your spending against a goal")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                isShowingSettings = true
+            } label: {
+                Text("Set up")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Theme.mint)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                nudgeDismissed = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss budget prompt")
+        }
+        .padding(14)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Theme.mint.opacity(0.25), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Set a monthly budget to track your spending against a goal")
+    }
+
+    // MARK: - Spend Prediction Row
+
+    private func spendPredictionRow(projected: Double) -> some View {
+        let budgetSet = monthlyBudget > 0
+        let overBudget = budgetSet && projected > monthlyBudget
+        let approaching = budgetSet && !overBudget && projected >= monthlyBudget * 0.80
+
+        let accentColor: Color = overBudget ? .red : approaching ? .orange : .secondary
+
+        let label: String = {
+            let projStr = projected.formatted(.currency(code: "USD"))
+            if budgetSet {
+                let budgetStr = monthlyBudget.formatted(.currency(code: "USD"))
+                if overBudget {
+                    let over = (projected - monthlyBudget).formatted(.currency(code: "USD"))
+                    return "On pace to spend \(projStr) — \(over) over your \(budgetStr) budget"
+                } else {
+                    return "On pace to spend \(projStr) this month (\(budgetStr) budget)"
+                }
+            }
+            return "On pace to spend \(projStr) this month"
+        }()
+
+        return HStack(spacing: 8) {
+            Image(systemName: overBudget ? "exclamationmark.circle.fill" : "chart.line.uptrend.xyaxis")
+                .font(.caption)
+                .foregroundStyle(accentColor)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(budgetSet ? accentColor : Color(.secondaryLabel))
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityLabel(label)
     }
 
     // MARK: - Hero Card
@@ -154,14 +337,6 @@ struct DashboardView: View {
                     value: "\(viewModel.priceAlertItems.count)",
                     label: "Price Alerts"
                 )
-                StatChip(
-                    icon: "dollarsign.circle.fill",
-                    iconColor: Theme.mint,
-                    value: viewModel.totalSavingsOpportunity > 0
-                        ? viewModel.totalSavingsOpportunity.formatted(.currency(code: "USD").precision(.fractionLength(0)))
-                        : "$0",
-                    label: "Savings Opp."
-                )
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 4)
@@ -172,43 +347,34 @@ struct DashboardView: View {
     // MARK: - Monthly Trend
 
     private var monthlyTrendCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Last 6 months")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        Button {
+            isShowingTrendDetail = true
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Last 6 months")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-            if viewModel.monthlySpends.allSatisfy({ $0.total == 0 }) {
-                VStack(spacing: 10) {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.system(size: 40, weight: .medium))
-                        .foregroundStyle(Theme.mint)
-                    Text("Scan receipts to see your spending trend")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                if viewModel.monthlySpends.allSatisfy({ $0.total == 0 }) {
+                    VStack(spacing: 10) {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.system(size: 40, weight: .medium))
+                            .foregroundStyle(Theme.mint)
+                        Text("Scan receipts to see your spending trend")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 160)
+                } else {
+                    SpendingBarChart(data: viewModel.monthlySpends, height: 160)
+                        .allowsHitTesting(false)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 160)
-            } else {
-                Chart(viewModel.monthlySpends) { spend in
-                    BarMark(
-                        x: .value("Month", spend.label),
-                        y: .value("Amount", spend.total)
-                    )
-                    .foregroundStyle(spend.isCurrent ? Theme.mint : Theme.primary.opacity(0.35))
-                    .cornerRadius(6)
-                }
-                .chartYAxis {
-                    AxisMarks(format: .currency(code: "USD"), values: .automatic(desiredCount: 4))
-                }
-                .chartXAxis {
-                    AxisMarks(values: .automatic) { _ in AxisValueLabel() }
-                }
-                .frame(height: 160)
-                .accessibilityLabel("Bar chart showing spending over the last 6 months")
             }
+            .cardStyle()
         }
-        .cardStyle()
+        .buttonStyle(.plain)
     }
 
     // MARK: - Store Breakdown
@@ -248,65 +414,47 @@ struct DashboardView: View {
         .cardStyle()
     }
 
-    // MARK: - Category Breakdown
+    // MARK: - Unified Savings Card
 
-    private var categoryBreakdownCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Spending by category")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Chart(viewModel.categorySpends) { cat in
-                BarMark(
-                    x: .value("Amount", cat.total),
-                    y: .value("Category", cat.category)
-                )
-                .foregroundStyle(Theme.mint.gradient)
-                .cornerRadius(4)
+    private var unifiedSavingsCard: some View {
+        Button {
+            selectedTab = 3
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Theme.mint.opacity(0.12))
+                        .frame(width: 52, height: 52)
+                    Image(systemName: "dollarsign.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(Theme.mint)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(totalCorrectSavings, format: .currency(code: "USD"))
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Color(.label))
+                    let count = allSavingsOpportunities.count
+                    Text("potential savings per trip · \(count) deal\(count == 1 ? "" : "s") found")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(.tertiaryLabel))
             }
-            .chartXAxis {
-                AxisMarks(format: .currency(code: "USD"), values: .automatic(desiredCount: 4))
+            .padding(16)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Theme.mint.opacity(0.25), lineWidth: 1)
             }
-            .frame(height: CGFloat(max(120, viewModel.categorySpends.count * 36)))
-            .accessibilityLabel("Horizontal bar chart showing spend by category")
+            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
         }
-        .cardStyle()
-    }
-
-    // MARK: - Savings Card
-
-    private var savingsCard: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Theme.mint.opacity(0.12))
-                    .frame(width: 48, height: 48)
-                Image(systemName: "dollarsign.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(Theme.mint)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Savings Opportunity")
-                    .font(.subheadline.weight(.semibold))
-                Text("per trip switching to cheapest stores")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(viewModel.totalSavingsOpportunity, format: .currency(code: "USD"))
-                .font(.title3.weight(.bold))
-                .foregroundStyle(Theme.mint)
-        }
-        .padding(16)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Theme.mint.opacity(0.25), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Savings opportunity: \(viewModel.totalSavingsOpportunity.formatted(.currency(code: "USD"))) per trip")
+        .accessibilityLabel("Savings opportunity: \(totalCorrectSavings.formatted(.currency(code: "USD"))) potential savings per trip, \(allSavingsOpportunities.count) deals found. Tap to view in Stores tab.")
     }
 
     // MARK: - Price Alerts
@@ -320,7 +468,7 @@ struct DashboardView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
     }
@@ -335,12 +483,25 @@ struct DashboardView: View {
                 VStack(spacing: 0) {
                     ForEach(viewModel.recentReceipts) { receipt in
                         TripRow(receipt: receipt)
-                        if receipt.id != viewModel.recentReceipts.last?.id {
-                            Divider().padding(.horizontal, 16)
-                        }
+                        Divider().padding(.horizontal, 16)
                     }
+                    Button {
+                        selectedTab = 3
+                    } label: {
+                        HStack {
+                            Text("See All Trips")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Theme.mint)
+                            Image(systemName: "arrow.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Theme.mint)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .background(Color.white)
+                .background(Color(.secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
             }
@@ -361,7 +522,7 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
-        .background(Color.white)
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
     }

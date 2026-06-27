@@ -3,10 +3,35 @@ import SwiftData
 
 struct StoresView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Store.name) private var stores: [Store]
+    @Query private var stores: [Store]
     @Query private var groceryItems: [GroceryItem]
     @State private var viewModel = StoresViewModel()
     @State private var storeToDelete: Store?
+    @State private var storeSortOrder: StoreSortOrder = .recentTrip
+
+    enum StoreSortOrder: String, CaseIterable {
+        case recentTrip = "Recent"
+        case name       = "Name"
+        case totalSpend = "Spend"
+    }
+
+    private var sortedStores: [Store] {
+        switch storeSortOrder {
+        case .recentTrip:
+            return stores.sorted {
+                let aDate = $0.receipts.max(by: { $0.date < $1.date })?.date ?? .distantPast
+                let bDate = $1.receipts.max(by: { $0.date < $1.date })?.date ?? .distantPast
+                return aDate > bDate
+            }
+        case .name:
+            return stores.sorted { $0.name < $1.name }
+        case .totalSpend:
+            return stores.sorted {
+                $0.receipts.reduce(0) { $0 + $1.totalAmount } >
+                $1.receipts.reduce(0) { $0 + $1.totalAmount }
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -55,9 +80,22 @@ struct StoresView: View {
                         .padding(.horizontal, 16)
                 }
 
+                HStack(spacing: 8) {
+                    Text("Sort:")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Picker("Sort", selection: $storeSortOrder) {
+                        ForEach(StoreSortOrder.allCases, id: \.self) { order in
+                            Text(order.rawValue).tag(order)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(.horizontal, 16)
+
                 SectionHeader(title: "Your Stores")
                 VStack(spacing: 10) {
-                    ForEach(stores) { store in
+                    ForEach(sortedStores) { store in
                         NavigationLink(destination: StoreDetailView(store: store)) {
                             StoreCard(store: store)
                         }
@@ -122,7 +160,7 @@ struct StoresView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
     }
@@ -175,19 +213,14 @@ private struct StoreCard: View {
                 Text(store.name)
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(Color(.label))
-                HStack(spacing: 4) {
-                    Text("\(store.receipts.count) trip\(store.receipts.count == 1 ? "" : "s")")
+                Text("\(store.receipts.count) trip\(store.receipts.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let address = store.address, !address.isEmpty {
+                    Text(address)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if !store.location.isEmpty {
-                        Text("·")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(store.location)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                        .lineLimit(1)
                 }
             }
 
@@ -207,7 +240,7 @@ private struct StoreCard: View {
                 .foregroundStyle(Color(.tertiaryLabel))
         }
         .padding(14)
-        .background(Color.white)
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
         .accessibilityElement(children: .combine)
@@ -234,7 +267,7 @@ private struct DealRow: View {
                 Text(comparison.itemName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color(.label))
-                Text(comparison.cheapestStore)
+                Text("\(comparison.cheapestStore) \(comparison.cheapestPrice.formatted(.currency(code: "USD"))) vs \(comparison.mostExpensiveStore) \(comparison.mostExpensivePrice.formatted(.currency(code: "USD")))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let text = comparison.unitComparisonText {
@@ -246,11 +279,8 @@ private struct DealRow: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text(comparison.cheapestPrice, format: .currency(code: "USD"))
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Theme.mint)
                 Text("save \(comparison.savings, format: .currency(code: "USD"))")
-                    .font(.caption2.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(Theme.mint)
             }
         }

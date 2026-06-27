@@ -6,6 +6,7 @@ final class GroceryItem {
     var name: String
     var normalizedName: String
     var category: String
+    var subCategory: String?          // grocery sub-category (Dairy, Bakery, etc.)
     var lastAlertDismissedDate: Date?
 
     @Relationship(deleteRule: .cascade, inverse: \PriceEntry.groceryItem)
@@ -41,9 +42,35 @@ final class GroceryItem {
         return true
     }
 
-    init(name: String, normalizedName: String, category: String = "General") {
+    /// Typed view of the persisted `category` string.
+    /// Unknown legacy values (e.g. "Dairy", "Bakery") fall back to `.grocery`.
+    var itemCategory: ItemCategory {
+        ItemCategory(rawValue: category) ?? .grocery
+    }
+
+    /// Whether this item is eligible for cross-store price comparison.
+    /// Delegates entirely to `ItemCategory.isComparable` — one place to change.
+    var isComparable: Bool { itemCategory.isComparable }
+
+    /// Effective grocery sub-category, handling both new and legacy stored items.
+    ///
+    /// New items: `category` holds a valid ItemCategory rawValue ("Grocery"), `subCategory` holds the sub.
+    /// Legacy items: `category` holds a fine-grained old value ("Dairy", "Bakery") because the old
+    /// CategoryTagger stored those directly. Since `ItemCategory(rawValue:)` returns nil for them,
+    /// we expose the old value as the sub-category rather than losing the detail.
+    var grocerySubCategory: String? {
+        if let sc = subCategory { return sc }
+        // Legacy: `category` holds a value that isn't a valid ItemCategory rawValue — it IS the sub-category
+        if ItemCategory(rawValue: category) == nil, category != "General" {
+            return category
+        }
+        return nil
+    }
+
+    init(name: String, normalizedName: String, category: String = ItemCategory.grocery.rawValue, subCategory: String? = nil) {
         self.name = name
         self.normalizedName = normalizedName
         self.category = category
+        self.subCategory = subCategory
     }
 }

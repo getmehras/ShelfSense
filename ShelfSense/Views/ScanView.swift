@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ScanView: View {
     @State private var viewModel = ScanViewModel()
+    @ObservedObject private var scanLimit = ScanLimitManager.shared
+    @AppStorage("showParseDebug")  private var showParseDebug = false
+    @AppStorage("scan_tips_shown") private var scanTipsShown = false
+    @State private var showScanTips = false
 
     var body: some View {
         NavigationStack {
@@ -17,6 +21,17 @@ struct ScanView: View {
                 }
             }
             .greenNavTitle("Scan Receipt")
+            .safeAreaInset(edge: .top) {
+                if showParseDebug {
+                    Label("Debug mode active — AI disabled", systemImage: "ant.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.orange)
+                }
+            }
         }
         .fullScreenCover(isPresented: $viewModel.isShowingCamera) {
             DocumentCameraView(
@@ -28,6 +43,39 @@ struct ScanView: View {
         .sheet(isPresented: $viewModel.isShowingReview) {
             if let receipt = viewModel.parsedReceipt {
                 ReviewReceiptView(viewModel: viewModel, receipt: receipt)
+            }
+        }
+        .sheet(isPresented: $viewModel.isShowingDebug) {
+            if let info = viewModel.lastDebugInfo {
+                ParseDebugSheet(
+                    info: info,
+                    itemCount: viewModel.parsedReceipt?.items.count ?? 0,
+                    onReview: { viewModel.proceedToReviewFromDebug() },
+                    onDismiss: { viewModel.isShowingDebug = false }
+                )
+            }
+        }
+        // Scan quality error sheet
+        .sheet(isPresented: Binding(
+            get: { viewModel.scanValidationError != nil },
+            set: { if !$0 { viewModel.scanValidationError = nil } }
+        )) {
+            if let reason = viewModel.scanValidationError {
+                ScanErrorSheet(reason: reason) {
+                    viewModel.scanValidationError = nil
+                    viewModel.isShowingCamera = true
+                } onManualEntry: {
+                    viewModel.scanValidationError = nil
+                    viewModel.isShowingReview = true
+                    viewModel.parsedReceipt = ParsedReceipt(storeName: "", items: [], isManualEntry: true)
+                }
+            }
+        }
+        // First-use tips sheet
+        .sheet(isPresented: $showScanTips) {
+            ScanTipsView {
+                showScanTips = false
+                viewModel.isShowingCamera = true
             }
         }
         .alert("Scan Failed", isPresented: .constant(viewModel.errorMessage != nil)) {
@@ -76,7 +124,6 @@ struct ScanView: View {
             } else {
                 actionButtons
             }
-
             tipText
         }
         .padding(.horizontal, 24)
@@ -88,7 +135,7 @@ struct ScanView: View {
             ProgressView()
                 .scaleEffect(1.3)
                 .tint(Theme.mint)
-            Text("Reading receipt…")
+            Text(viewModel.isUsingAI ? "Analyzing with AI…" : "Reading receipt…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -99,7 +146,12 @@ struct ScanView: View {
     private var actionButtons: some View {
         VStack(spacing: 14) {
             Button("Open Camera") {
-                viewModel.isShowingCamera = true
+                if scanTipsShown {
+                    viewModel.isShowingCamera = true
+                } else {
+                    scanTipsShown = true
+                    showScanTips = true
+                }
             }
             .buttonStyle(.mint)
             .accessibilityLabel("Open camera to scan receipt")
@@ -114,15 +166,139 @@ struct ScanView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Enter receipt items manually")
+
+            scanStatusView
+                .padding(.top, 8)
+        }
+    }
+
+    private var scanStatusView: some View {
+        VStack(spacing: 6) {
+            Text(scanLimit.statusText)
+                .font(.caption)
+                .foregroundStyle(scanLimit.hasAIScansRemaining ? Color.secondary : Color.orange)
+                .multilineTextAlignment(.center)
+            ProgressView(value: scanLimit.progressValue)
+                .tint(scanLimit.hasAIScansRemaining ? Theme.mint : .orange)
+                .frame(width: 180)
         }
     }
 
     private var tipText: some View {
         Label("Works best with printed receipts in good lighting", systemImage: "lightbulb.fill")
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color(.tertiaryLabel))
             .multilineTextAlignment(.center)
             .padding(.top, 4)
+    }
+}
+
+// MARK: - Scan Error Sheet
+
+private struct ScanErrorSheet: View {
+    let reason: ReceiptScanValidator.FailureReason
+    let onRetry: () -> Void
+    let onManualEntry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(Color.orange.opacity(0.12))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "viewfinder.trianglebadge.2.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.orange)
+            }
+            .padding(.top, 8)
+
+            VStack(spacing: 8) {
+                Text("Scan Quality Issue")
+                    .font(.title3.weight(.bold))
+                Text(reason.userMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+
+            VStack(spacing: 12) {
+                Button(reason.retryButtonText) {
+                    onRetry()
+                }
+                .buttonStyle(.mint)
+
+                Button("Enter Manually") {
+                    onManualEntry()
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.primary)
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 32)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 32)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Scan Tips View (first use only)
+
+private struct ScanTipsView: View {
+    let onDismiss: () -> Void
+
+    private let tips: [(icon: String, text: String)] = [
+        ("iphone",          "Hold phone directly above receipt"),
+        ("lightbulb.fill",  "Good lighting helps accuracy"),
+        ("doc.text.fill",   "Capture the full receipt in frame"),
+        ("hand.raised.fill","Keep phone steady while scanning"),
+    ]
+
+    var body: some View {
+        VStack(spacing: 28) {
+            VStack(spacing: 6) {
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundStyle(Theme.primary)
+                Text("Scanning Tips")
+                    .font(.title3.weight(.bold))
+                Text("For best results:")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 32)
+
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(tips, id: \.text) { tip in
+                    HStack(spacing: 14) {
+                        Image(systemName: tip.icon)
+                            .font(.body)
+                            .foregroundStyle(Theme.mint)
+                            .frame(width: 24)
+                        Text(tip.text)
+                            .font(.subheadline)
+                    }
+                }
+            }
+            .padding(.horizontal, 32)
+
+            Text("Opening camera…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                onDismiss()
+            }
+        }
     }
 }
 

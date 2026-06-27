@@ -1,0 +1,27 @@
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+
+# Build outputs
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/
+
+# macOS
+.DS_Store
+
+# Supabase credentials — never commit; config stays local only
+ShelfSense/Config/SupabaseConfig.swift
+
+# Fastlane (if added later)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output

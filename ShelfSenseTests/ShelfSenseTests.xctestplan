@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "1A96AE79-47DF-4608-BEB0-7A61A4CFE119",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:ShelfSense.xcodeproj",
+        "identifier" : "AA5555550000000000000005",
+        "name" : "ShelfSenseTests"
+      }
+    }
+  ],
+  "version" : 1
+}

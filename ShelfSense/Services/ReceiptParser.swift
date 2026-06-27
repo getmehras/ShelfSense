@@ -1,130 +1,199 @@
 import Vision
 import UIKit
 
+// Returned by parse(images:) so callers can distinguish a clean receipt from a bad scan
+// without needing to inspect a partially-populated ParsedReceipt.
+enum ScanParseResult {
+    case success(ParsedReceipt)
+    case validationFailed(ReceiptScanValidator.FailureReason)
+}
+
 struct ReceiptParser {
 
-    nonisolated func parse(images: [UIImage]) async -> ParsedReceipt {
+    // MARK: - Public API
+
+    nonisolated func parse(images: [UIImage]) async -> ScanParseResult {
+        ScanMetrics.increment(ScanMetrics.keyAttempts)
+
         var allLines: [String] = []
+        var allConfidences: [Float] = []
+
         for image in images {
-            let lines = await recognizeText(in: image)
+            let (lines, confidence) = await recognizeText(in: image)
             allLines.append(contentsOf: lines)
+            allConfidences.append(confidence)
         }
-        return parseLines(allLines)
+
+        let avgConfidence = allConfidences.isEmpty
+            ? Float(1.0)
+            : allConfidences.reduce(0, +) / Float(allConfidences.count)
+        let rawText = allLines.joined(separator: "\n")
+
+        // Validate OCR quality before spending an API call
+        let validation = ReceiptScanValidator.validate(
+            ocrText: rawText,
+            lines: allLines,
+            averageConfidence: avgConfidence
+        )
+        if case .failed(let reason) = validation {
+            ScanMetrics.increment(ScanMetrics.keyFailures)
+            return .validationFailed(reason)
+        }
+
+        let ocrStoreName = extractStoreName(from: allLines)
+        let detectedTotal = extractTotal(from: allLines)
+        let result = await parseReceiptItems(rawText: rawText, ocrStoreName: ocrStoreName)
+
+        return .success(ParsedReceipt(
+            storeName: result.storeName,
+            storeAddress: result.storeAddress,
+            date: result.purchaseDate ?? .now,
+            items: result.items,
+            detectedTotal: result.receiptTotal ?? detectedTotal, // prefer backend over OCR
+            receiptSubtotal: result.receiptSubtotal,
+            salesTax: result.salesTax,
+            usedAI: result.usedAI
+        ))
     }
 
-    // MARK: - OCR
+    // Debug mode skips validation so developers can inspect any OCR output.
+    nonisolated func parseWithDebug(images: [UIImage]) async -> (ParsedReceipt, ParseDebugInfo) {
+        var allLines: [String] = []
+        for image in images {
+            let (lines, _) = await recognizeText(in: image)
+            allLines.append(contentsOf: lines)
+        }
+        let storeName = extractStoreName(from: allLines)
+        let detectedTotal = extractTotal(from: allLines)
+        let collector = DebugCollector()
+        let items = SmartReceiptParser.parse(lines: allLines, storeName: storeName,
+                                             collector: collector)
+        let receipt = ParsedReceipt(storeName: storeName, items: items,
+                                    detectedTotal: detectedTotal)
+        let debugInfo = ParseDebugInfo(
+            rawLines: allLines,
+            storeName: storeName,
+            detectedTotal: detectedTotal,
+            acceptedItems: collector.accepted.map {
+                ParseDebugInfo.AcceptedItem(originalLine: $0.line,
+                                            cleanedName: $0.name,
+                                            price: $0.price)
+            },
+            rejectedLines: collector.rejected.map {
+                ParseDebugInfo.RejectedLine(text: $0.text, reason: $0.reason)
+            }
+        )
+        return (receipt, debugInfo)
+    }
 
-    private nonisolated func recognizeText(in image: UIImage) async -> [String] {
-        guard let cgImage = image.cgImage else { return [] }
+    // MARK: - Smart routing
+
+    private nonisolated func parseReceiptItems(
+        rawText: String,
+        ocrStoreName: String
+    ) async -> (items: [ParsedReceiptItem], usedAI: Bool, storeName: String,
+                storeAddress: String?, purchaseDate: Date?,
+                receiptSubtotal: Double?, salesTax: Double?, receiptTotal: Double?) {
+
+        let limiter = ScanLimitManager.shared
+
+        if limiter.hasAIScansRemaining {
+            ScanMetrics.increment(ScanMetrics.keyApiCalls)
+            do {
+                let result = try await BackendReceiptParser.parse(
+                    rawOCRText: redactSensitiveLines(from: rawText),
+                    storeName: ocrStoreName)
+
+                if !result.items.isEmpty {
+                    await MainActor.run { limiter.useAIScan() }
+                    let finalStoreName = result.storeName.isEmpty ? ocrStoreName : result.storeName
+                    return (result.items, true, finalStoreName,
+                            result.storeAddress, result.purchaseDate,
+                            result.receiptSubtotal, result.salesTax, result.receiptTotal)
+                }
+            } catch BackendReceiptParser.ParserError.networkError {
+                // Offline — fall through to local parser
+            } catch {
+                // Any backend error — fall through to local parser
+            }
+        }
+
+        // Local fallback: offline, scans exhausted, or backend returned empty
+        let lines = rawText.components(separatedBy: .newlines)
+        let items = SmartReceiptParser.parse(lines: lines, storeName: ocrStoreName)
+        return (items, false, ocrStoreName, nil, nil, nil, nil, nil)
+    }
+
+    // MARK: - Pre-send scrubbing
+
+    private nonisolated func redactSensitiveLines(from text: String) -> String {
+        let cardKeywords = [
+            "VISA", "MASTERCARD", "MASTER CARD", "AMEX", "AMERICAN EXPRESS",
+            "DISCOVER", "INTERAC", "CREDIT CARD", "DEBIT CARD",
+            "CARD ENDING", "CARD NUMBER", "CARDS USED", "LAST 4", "LAST FOUR",
+            "APPROVED", "AUTHORIZATION", "ACCOUNT NUMBER",
+        ]
+        return text
+            .components(separatedBy: .newlines)
+            .filter { line in
+                let upper = line.uppercased()
+                if cardKeywords.contains(where: { upper.contains($0) }) { return false }
+                if upper.range(of: #"[*X]{2,}[\s\-]*\d{3,4}"#, options: .regularExpression) != nil { return false }
+                if upper.range(of: #"^\s*\d{4}\s*$"#, options: .regularExpression) != nil { return false }
+                return true
+            }
+            .joined(separator: "\n")
+    }
+
+    // MARK: - Vision OCR
+
+    private nonisolated func recognizeText(in image: UIImage) async -> (lines: [String], avgConfidence: Float) {
+        guard let cgImage = image.cgImage else { return ([], 1.0) }
         return await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { request, _ in
-                let lines = (request.results as? [VNRecognizedTextObservation] ?? [])
-                    .compactMap { $0.topCandidates(1).first?.string }
-                continuation.resume(returning: lines)
+                let observations = request.results as? [VNRecognizedTextObservation] ?? []
+                let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+                let confidences = observations.compactMap { $0.topCandidates(1).first?.confidence }
+                let avg = confidences.isEmpty
+                    ? Float(1.0)
+                    : confidences.reduce(0, +) / Float(confidences.count)
+                continuation.resume(returning: (lines, avg))
             }
             request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
+            request.usesLanguageCorrection = false
+            request.recognitionLanguages = ["en-US"]
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
             do {
                 try handler.perform([request])
             } catch {
-                continuation.resume(returning: [])
+                continuation.resume(returning: ([], 1.0))
             }
         }
     }
 
-    // MARK: - Parsing
-
-    private nonisolated func parseLines(_ lines: [String]) -> ParsedReceipt {
-        let storeName = extractStoreName(from: lines)
-        var items: [ParsedReceiptItem] = []
-        var detectedTotal: Double?
-
-        for line in lines {
-            let lower = line.lowercased()
-
-            if lower.contains("total") && !lower.contains("subtotal") {
-                detectedTotal = extractLastPrice(from: line) ?? detectedTotal
-                continue
-            }
-            if shouldSkipLine(lower) { continue }
-            if let item = parseItem(from: line) {
-                items.append(item)
-            }
-        }
-
-        return ParsedReceipt(storeName: storeName, items: items, detectedTotal: detectedTotal)
-    }
+    // MARK: - Helpers
 
     private nonisolated func extractStoreName(from lines: [String]) -> String {
-        for line in lines.prefix(6) {
+        for line in lines.prefix(10) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count >= 3 else { continue }
             guard trimmed.first?.isLetter == true else { continue }
-            guard trimmed.firstMatch(of: /\d{5}/) == nil else { continue } // skip zip codes
-            return trimmed
+            guard trimmed.firstMatch(of: /\d{5}/) == nil else { continue }
+            return StoreNameNormalizer.normalize(trimmed)
         }
         return "Unknown Store"
     }
 
-    private nonisolated func shouldSkipLine(_ lower: String) -> Bool {
-        let skipWords = [
-            "subtotal", "sub-total", "sub total", "sales tax", "cash",
-            "change", "balance", "debit", "credit", "visa", "mastercard",
-            "approved", "terminal", "ref#", "auth", "account", "card",
-            "payment", "thank you", "transaction", "member", "loyalty",
-            "points", "discount", "coupon", "promo", "savings", "item count"
-        ]
-        return skipWords.contains { lower.contains($0) }
-    }
-
-    private nonisolated func extractLastPrice(from line: String) -> Double? {
-        line.matches(of: /\$?(\d{1,4}\.\d{2})/).last.flatMap { Double($0.output.1) }
-    }
-
-    private nonisolated func parseItem(from line: String) -> ParsedReceiptItem? {
-        // Price must appear at the end of the line, optionally followed by a tax code
-        guard let priceMatch = line.firstMatch(of: /\$?(\d{1,3}\.\d{2})\s*[A-Z]?\s*$/) else {
-            return nil
+    private nonisolated func extractTotal(from lines: [String]) -> Double? {
+        for line in lines.reversed() {
+            let lower = line.lowercased()
+            guard lower.contains("total"), !lower.contains("subtotal") else { continue }
+            if let match = line.matches(of: /\$?(\d{1,4}\.\d{2})/).last,
+               let price = Double(match.output.1) {
+                return price
+            }
         }
-        guard let price = Double(priceMatch.output.1), price > 0.01 else { return nil }
-
-        // Everything before the price is the item description
-        let nameCandidate = String(line[line.startIndex..<priceMatch.range.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard nameCandidate.count >= 2 else { return nil }
-
-        // Detect quantity patterns like "2 @ 1.99 ITEM" or "3 x ITEM"
-        var quantity = 1.0
-        var cleanName = nameCandidate
-
-        if let m = nameCandidate.firstMatch(of: /^(\d+)\s*@\s*\$?(\d+\.\d{2})\s+(.+)$/) {
-            quantity = Double(m.output.1) ?? 1
-            cleanName = String(m.output.3)
-        } else if let m = nameCandidate.firstMatch(of: /^(\d)\s+([A-Za-z].{2,})$/) {
-            quantity = Double(m.output.1) ?? 1
-            cleanName = String(m.output.2)
-        }
-
-        // Skip lines where the "name" is just digits or very short
-        guard cleanName.first?.isLetter == true || cleanName.contains(" ") else { return nil }
-
-        let finalName = cleanName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .capitalized
-        guard finalName.count >= 2 else { return nil }
-
-        // Per-package price (price ÷ quantity) is what we normalize per oz/fl oz/ea
-        let perPackagePrice = price / max(quantity, 1)
-        let unitInfo = UnitPriceCalculator.parse(name: finalName, price: perPackagePrice)
-
-        return ParsedReceiptItem(
-            name: finalName,
-            price: price,
-            quantity: quantity,
-            unitPrice: unitInfo?.unitPrice,
-            unitType: unitInfo?.baseUnit
-        )
+        return nil
     }
 }

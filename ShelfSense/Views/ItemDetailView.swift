@@ -219,7 +219,7 @@ struct ItemDetailView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
     }
@@ -284,7 +284,7 @@ struct ItemDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(28)
-                .background(Color.white)
+                .background(Color(.secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
             } else {
@@ -296,7 +296,7 @@ struct ItemDetailView: View {
                         }
                     }
                 }
-                .background(Color.white)
+                .background(Color(.secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
             }

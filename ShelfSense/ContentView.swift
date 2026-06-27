@@ -5,7 +5,7 @@ import UIKit
 struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @Query private var groceryItems: [GroceryItem]
-    @State private var selectedTab = 0
+    @AppStorage("selected_tab") private var selectedTab = 0
 
     init() {
         let mintUIColor = UIColor(red: 0, green: 200/255, blue: 83/255, alpha: 1)   // #00C853

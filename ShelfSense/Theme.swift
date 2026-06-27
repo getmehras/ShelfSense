@@ -31,7 +31,10 @@ extension Color {
 enum Theme {
     static let primary         = Color(red: 27/255,  green: 94/255,  blue: 32/255)   // #1B5E20
     static let mint            = Color(red: 0/255,   green: 200/255, blue: 83/255)   // #00C853
-    static let appBackground   = Color(hex: "F8F9FA")
+    static let appBackground   = Color(.systemGroupedBackground)
+    static let cardBackground  = Color(.secondarySystemGroupedBackground)
+    static let primaryText     = Color(.label)
+    static let secondaryText   = Color(.secondaryLabel)
 
     static var heroGradient: LinearGradient {
         LinearGradient(
@@ -52,7 +55,7 @@ extension View {
     func cardStyle(padding: CGFloat = 16) -> some View {
         self
             .padding(padding)
-            .background(Color.white)
+            .background(Color(.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
     }
@@ -142,7 +145,7 @@ struct StatChip: View {
         .padding(16)
         .frame(width: 120, alignment: .leading)
         .frame(minHeight: 80)
-        .background(Color.white)
+        .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
     }

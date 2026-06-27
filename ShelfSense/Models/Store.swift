@@ -5,6 +5,7 @@ import SwiftData
 final class Store {
     var name: String
     var location: String
+    var address: String?
 
     @Relationship(inverse: \Receipt.store)
     var receipts: [Receipt] = []
