@@ -59,7 +59,9 @@ final class DashboardViewModel {
             .reduce(0) { $0 + $1.totalAmount }
 
         monthlySpend = thisMonthReceipts.reduce(0) { $0 + $1.totalAmount }
-        monthlyChangePercent = lastMonthTotal > 0 ? ((monthlySpend - lastMonthTotal) / lastMonthTotal) * 100 : nil
+        monthlyChangePercent = (lastMonthTotal > 0 && !thisMonthReceipts.isEmpty)
+            ? ((monthlySpend - lastMonthTotal) / lastMonthTotal) * 100
+            : nil
         priceAlertItems = groceryItems.filter { $0.isPriceAlert }
         recentReceipts = Array(receipts.sorted { $0.date > $1.date }.prefix(3))
 
@@ -67,7 +69,7 @@ final class DashboardViewModel {
         let shortFormatter = DateFormatter()
         shortFormatter.dateFormat = "MMM"
         monthlySpends = (0..<6).reversed().map { offset in
-            let date = calendar.date(byAdding: .month, value: -offset, to: now)!
+            let date = calendar.date(byAdding: .month, value: -offset, to: now) ?? now
             let total = receipts
                 .filter { calendar.isDate($0.date, equalTo: date, toGranularity: .month) }
                 .reduce(0) { $0 + $1.totalAmount }
@@ -85,9 +87,9 @@ final class DashboardViewModel {
         longFormatter.dateFormat = "MMM ''yy"
         if let earliest = receipts.min(by: { $0.date < $1.date })?.date {
             let startComps = calendar.dateComponents([.year, .month], from: earliest)
-            var cursor     = calendar.date(from: startComps)!
+            var cursor     = calendar.date(from: startComps) ?? earliest
             let endComps   = calendar.dateComponents([.year, .month], from: now)
-            let monthEnd   = calendar.date(from: endComps)!
+            let monthEnd   = calendar.date(from: endComps) ?? now
             var history: [MonthlySpend] = []
             while cursor <= monthEnd {
                 let total = receipts
@@ -99,7 +101,8 @@ final class DashboardViewModel {
                     total: total,
                     isCurrent: calendar.isDate(cursor, equalTo: now, toGranularity: .month)
                 ))
-                cursor = calendar.date(byAdding: .month, value: 1, to: cursor)!
+                guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
+                cursor = next
             }
             historicalMonthlySpends = history
         } else {

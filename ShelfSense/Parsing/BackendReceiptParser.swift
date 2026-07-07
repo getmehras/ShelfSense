@@ -69,9 +69,10 @@ struct BackendReceiptParser {
         let items: [ParsedReceiptItem] = array.compactMap { item in
             guard
                 let name  = item["name"]  as? String, name.count >= 2,
-                let price = item["price"] as? Double, price >= 0.25, price <= 500,
                 !isPaymentLine(name)
             else { return nil }
+            let price = (item["price"] as? Double) ?? Double(item["price"] as? Int ?? -1)
+            guard price >= 0.25, price <= 500 else { return nil }
             let qty         = (item["quantity"]    as? Double) ?? Double(item["quantity"] as? Int ?? 1)
             let category    = item["category"]    as? String
             let subCategory = item["subCategory"] as? String

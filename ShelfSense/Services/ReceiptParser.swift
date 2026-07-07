@@ -6,6 +6,7 @@ import UIKit
 enum ScanParseResult {
     case success(ParsedReceipt)
     case validationFailed(ReceiptScanValidator.FailureReason)
+    case backendError(String)
 }
 
 struct ReceiptParser {
@@ -42,18 +43,26 @@ struct ReceiptParser {
 
         let ocrStoreName = extractStoreName(from: allLines)
         let detectedTotal = extractTotal(from: allLines)
-        let result = await parseReceiptItems(rawText: rawText, ocrStoreName: ocrStoreName)
-
-        return .success(ParsedReceipt(
-            storeName: result.storeName,
-            storeAddress: result.storeAddress,
-            date: result.purchaseDate ?? .now,
-            items: result.items,
-            detectedTotal: result.receiptTotal ?? detectedTotal, // prefer backend over OCR
-            receiptSubtotal: result.receiptSubtotal,
-            salesTax: result.salesTax,
-            usedAI: result.usedAI
-        ))
+        do {
+            let result = try await parseReceiptItems(rawText: rawText, ocrStoreName: ocrStoreName)
+            return .success(ParsedReceipt(
+                storeName: result.storeName,
+                storeAddress: result.storeAddress,
+                date: result.purchaseDate ?? .now,
+                items: result.items,
+                detectedTotal: result.receiptTotal ?? detectedTotal,
+                receiptSubtotal: result.receiptSubtotal,
+                salesTax: result.salesTax,
+                usedAI: result.usedAI
+            ))
+        } catch BackendReceiptParser.ParserError.invalidURL {
+            // Config/programmer error — don't expose internal detail to the user
+            ScanMetrics.increment(ScanMetrics.keyFailures)
+            return .backendError("Something went wrong. Please try again.")
+        } catch {
+            ScanMetrics.increment(ScanMetrics.keyFailures)
+            return .backendError(error.localizedDescription)
+        }
     }
 
     // Debug mode skips validation so developers can inspect any OCR output.
@@ -91,7 +100,7 @@ struct ReceiptParser {
     private nonisolated func parseReceiptItems(
         rawText: String,
         ocrStoreName: String
-    ) async -> (items: [ParsedReceiptItem], usedAI: Bool, storeName: String,
+    ) async throws -> (items: [ParsedReceiptItem], usedAI: Bool, storeName: String,
                 storeAddress: String?, purchaseDate: Date?,
                 receiptSubtotal: Double?, salesTax: Double?, receiptTotal: Double?) {
 
@@ -113,9 +122,8 @@ struct ReceiptParser {
                 }
             } catch BackendReceiptParser.ParserError.networkError {
                 // Offline — fall through to local parser
-            } catch {
-                // Any backend error — fall through to local parser
             }
+            // rateLimited, serverError, invalidResponse, invalidURL propagate to parse(images:)
         }
 
         // Local fallback: offline, scans exhausted, or backend returned empty
@@ -148,7 +156,7 @@ struct ReceiptParser {
     // MARK: - Vision OCR
 
     private nonisolated func recognizeText(in image: UIImage) async -> (lines: [String], avgConfidence: Float) {
-        guard let cgImage = image.cgImage else { return ([], 1.0) }
+        guard let cgImage = image.cgImage else { return ([], 0.0) }
         return await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { request, _ in
                 let observations = request.results as? [VNRecognizedTextObservation] ?? []
@@ -167,7 +175,7 @@ struct ReceiptParser {
             do {
                 try handler.perform([request])
             } catch {
-                continuation.resume(returning: ([], 1.0))
+                continuation.resume(returning: ([], 0.0))
             }
         }
     }

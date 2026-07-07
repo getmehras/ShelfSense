@@ -251,7 +251,7 @@ private struct StoreCard: View {
 // MARK: - Deal Row
 
 private struct DealRow: View {
-    let comparison: StoresViewModel.ItemComparison
+    let comparison: PriceComparisonViewModel.SavingsOpportunity
 
     var body: some View {
         HStack(spacing: 12) {
@@ -264,22 +264,16 @@ private struct DealRow: View {
                     .foregroundStyle(Theme.mint)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(comparison.itemName)
+                Text(comparison.displayName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color(.label))
-                Text("\(comparison.cheapestStore) \(comparison.cheapestPrice.formatted(.currency(code: "USD"))) vs \(comparison.mostExpensiveStore) \(comparison.mostExpensivePrice.formatted(.currency(code: "USD")))")
+                Text("\(comparison.cheapestStoreName) \(comparison.cheapestPrice.formatted(.currency(code: "USD"))) vs \(comparison.mostExpensiveStoreName) \(comparison.mostExpensivePrice.formatted(.currency(code: "USD")))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if let text = comparison.unitComparisonText {
-                    Text(text)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text("save \(comparison.savings, format: .currency(code: "USD"))")
+                Text("save up to \(comparison.savings, format: .currency(code: "USD"))")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(Theme.mint)
             }
@@ -287,7 +281,7 @@ private struct DealRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(comparison.itemName), cheapest at \(comparison.cheapestStore) for \(comparison.cheapestPrice.formatted(.currency(code: "USD"))), saves \(comparison.savings.formatted(.currency(code: "USD")))")
+        .accessibilityLabel("\(comparison.displayName), cheapest at \(comparison.cheapestStoreName) for \(comparison.cheapestPrice.formatted(.currency(code: "USD"))), saves up to \(comparison.savings.formatted(.currency(code: "USD")))")
     }
 }
 

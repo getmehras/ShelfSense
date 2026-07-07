@@ -5,6 +5,8 @@ struct ReviewReceiptView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var viewModel: ScanViewModel
     @State private var receipt: ParsedReceipt
+    @FocusState private var storeNameFocused: Bool
+    @State private var focusedNewItemID: UUID?
 
     init(viewModel: ScanViewModel, receipt: ParsedReceipt) {
         self.viewModel = viewModel
@@ -68,6 +70,13 @@ struct ReviewReceiptView: View {
                 }
             }
         }
+        .onAppear {
+            guard receipt.isManualEntry else { return }
+            // Sheet slide-up animation takes ~0.35 s; focus set before it settles is silently dropped.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                storeNameFocused = true
+            }
+        }
     }
 
     // MARK: - Empty banner
@@ -124,6 +133,7 @@ struct ReviewReceiptView: View {
                     .accessibilityHidden(true)
                 TextField("Store name", text: $receipt.storeName)
                     .accessibilityLabel("Store name")
+                    .focused($storeNameFocused)
             }
             DatePicker("Date", selection: $receipt.date, displayedComponents: [.date])
                 .accessibilityLabel("Receipt date")
@@ -145,13 +155,16 @@ struct ReviewReceiptView: View {
                 .padding(.vertical, 20)
             } else {
                 ForEach($receipt.items) { $item in
-                    ItemReviewRow(item: $item)
+                    ItemReviewRow(item: $item, autoFocus: item.id == focusedNewItemID)
                 }
                 .onDelete { receipt.items.remove(atOffsets: $0) }
             }
 
             Button {
-                receipt.items.append(ParsedReceiptItem(name: "", price: 0))
+                let newItem = ParsedReceiptItem(name: "", price: 0)
+                focusedNewItemID = newItem.id
+                storeNameFocused = false
+                receipt.items.append(newItem)
             } label: {
                 Label("Add Item", systemImage: "plus.circle.fill")
                     .foregroundStyle(Theme.mint)
@@ -281,7 +294,9 @@ struct ReviewReceiptView: View {
 
 private struct ItemReviewRow: View {
     @Binding var item: ParsedReceiptItem
+    var autoFocus: Bool = false
     @State private var priceText: String = ""
+    @FocusState private var nameFocused: Bool
     @FocusState private var priceFocused: Bool
 
     var body: some View {
@@ -302,7 +317,13 @@ private struct ItemReviewRow: View {
                 TextField("Item name", text: $item.name)
                     .font(.subheadline)
                     .accessibilityLabel("Item name")
+                    .focused($nameFocused)
                     .onAppear {
+                        if autoFocus {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                nameFocused = true
+                            }
+                        }
                         // Auto-classify items that arrive without a category (e.g. from OCR-only scan)
                         guard item.category == nil, !item.name.isEmpty else { return }
                         let result = CategoryTagger.classify(item.name)

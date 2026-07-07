@@ -4,6 +4,9 @@ import SwiftData
 @Model
 final class Store {
     var name: String
+    /// Stable identity key — set at creation from StoreNameNormalizer, never changed by rename.
+    /// Existing records migrated by SwiftData default to "" and are backfilled lazily in findOrCreateStore.
+    var normalizedName: String = ""
     var location: String
     var address: String?
 
@@ -15,6 +18,7 @@ final class Store {
 
     init(name: String, location: String = "") {
         self.name = name
+        self.normalizedName = StoreNameNormalizer.normalize(name)
         self.location = location
     }
 
@@ -41,12 +45,17 @@ final class Store {
             if willBeOrphaned { orphanedItems.append(item) }
         }
 
-        // Delete orphaned grocery items first (cascade removes their price entries)
+        // Nullify store ref on multi-store entries BEFORE any deletions.
+        // Iterating priceEntries after cascades fire is undefined — apply while all objects are live.
+        let orphanIDs = Set(orphanedItems.map(\.persistentModelID))
+        for entry in priceEntries {
+            let isOrphanEntry = entry.groceryItem.map { orphanIDs.contains($0.persistentModelID) } ?? false
+            if !isOrphanEntry { entry.store = nil }
+        }
+        // Delete orphaned grocery items (cascade removes their price entries)
         for item in orphanedItems { context.delete(item) }
         // Delete receipts (cascade removes their price entries)
         for receipt in receipts { context.delete(receipt) }
-        // Nullify store ref on any remaining direct price entries (multi-store items)
-        for entry in priceEntries { entry.store = nil }
         context.delete(self)
     }
 }

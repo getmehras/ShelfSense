@@ -44,6 +44,8 @@ final class ScanViewModel {
                     }
                 case .validationFailed(let reason):
                     scanValidationError = reason
+                case .backendError(let message):
+                    errorMessage = message
                 }
             }
         }
@@ -60,11 +62,17 @@ final class ScanViewModel {
         // Request notification permission on first save (non-blocking)
         NotificationService.shared.requestPermissionIfNeeded()
 
-        let store = findOrCreateStore(
-            name: parsed.storeName,
-            address: parsed.storeAddress,
-            context: context
-        )
+        let store: Store
+        do {
+            store = try findOrCreateStore(
+                name: parsed.storeName,
+                address: parsed.storeAddress,
+                context: context
+            )
+        } catch {
+            errorMessage = "Could not save receipt: database read failed."
+            return
+        }
         let storeName = store.name
 
         // Create the Receipt
@@ -77,7 +85,13 @@ final class ScanViewModel {
         context.insert(receipt)
 
         // Fetch all existing items once so fuzzy matching works across the whole receipt
-        var existingItems = (try? context.fetch(FetchDescriptor<GroceryItem>())) ?? []
+        var existingItems: [GroceryItem]
+        do {
+            existingItems = try context.fetch(FetchDescriptor<GroceryItem>())
+        } catch {
+            errorMessage = "Could not save receipt: database read failed."
+            return
+        }
         var priceIncreases: [NotificationService.PriceIncrease] = []
 
         // Save each included item
@@ -140,42 +154,58 @@ final class ScanViewModel {
         name: String,
         address: String?,
         context: ModelContext
-    ) -> Store {
+    ) throws -> Store {
         let normalizedName = StoreNameNormalizer.normalize(name)
-        let normalizedAddress: String? = (address?.isEmpty == false) ? address : nil
+        let rawAddress: String? = address.flatMap {
+            let t = $0.trimmingCharacters(in: .whitespaces)
+            return t.isEmpty ? nil : t
+        }
 
-        // Fetch all stores sharing this normalized name
+        // Primary path: match by normalizedName (stable identity key).
+        // Fallback: match by name for legacy records where normalizedName == "" (pre-migration stores).
         let descriptor = FetchDescriptor<Store>(
-            predicate: #Predicate { $0.name == normalizedName }
+            predicate: #Predicate {
+                $0.normalizedName == normalizedName ||
+                ($0.normalizedName == "" && $0.name == normalizedName)
+            }
         )
-        let candidates = (try? context.fetch(descriptor)) ?? []
+        let candidates = try context.fetch(descriptor)
 
-        // Case 1: receipt has an address — match on name AND address (case-insensitive)
-        if let addr = normalizedAddress {
-            let addrKey = addr.lowercased().trimmingCharacters(in: .whitespaces)
+        // Backfill normalizedName for any legacy stores found via the fallback path.
+        for store in candidates where store.normalizedName.isEmpty {
+            store.normalizedName = normalizedName
+        }
+
+        // Case 1: receipt has an address — match on name AND normalized address.
+        // Normalization expands abbreviations so "123 Main St" == "123 Main Street".
+        if let rawAddr = rawAddress {
+            let addrKey = StoreNameNormalizer.normalizeAddress(rawAddr)
             if let match = candidates.first(where: {
-                ($0.address ?? "").lowercased().trimmingCharacters(in: .whitespaces) == addrKey
+                StoreNameNormalizer.normalizeAddress($0.address ?? "") == addrKey
             }) {
                 return match
             }
-            // Different address (or no existing address entry) — new store location
             let s = Store(name: normalizedName)
-            s.address = addr
+            s.address = rawAddr
             context.insert(s)
             return s
         }
 
-        // Case 2: no address — prefer an existing entry that also has no address
-        if let match = candidates.first(where: { $0.address == nil || $0.address?.isEmpty == true }) {
+        // Case 2: no address — prefer an existing entry that also has no address.
+        if let match = candidates.first(where: { ($0.address ?? "").isEmpty }) {
             return match
         }
 
-        // Case 3: name match exists but has an address — reuse rather than creating a bare duplicate
-        if let match = candidates.first {
+        // Case 3: all candidates have addresses and this receipt has none.
+        // Pick the most recently visited location — better heuristic than insertion order.
+        if let match = candidates.max(by: { a, b in
+            (a.receipts.map(\.date).max() ?? .distantPast) <
+            (b.receipts.map(\.date).max() ?? .distantPast)
+        }) {
             return match
         }
 
-        // Nothing found — create name-only store
+        // Nothing found — create name-only store.
         let s = Store(name: normalizedName)
         context.insert(s)
         return s

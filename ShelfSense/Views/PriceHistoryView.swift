@@ -12,6 +12,7 @@ struct PriceHistoryView: View {
 
     // Set by Dashboard "See All" button to deep-link into compare mode
     @AppStorage("price_compare_active") private var priceCompareActive = false
+    @FocusState private var searchFocused: Bool
 
     // MARK: - Enums
 
@@ -105,6 +106,9 @@ struct PriceHistoryView: View {
             if priceCompareActive {
                 priceMode = .compare
                 priceCompareActive = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    searchFocused = true
+                }
             }
         }
     }
@@ -117,6 +121,7 @@ struct PriceHistoryView: View {
                 .foregroundStyle(.secondary)
             TextField(priceMode == .history ? "Search items…" : "Search to compare…", text: $searchText)
                 .font(.body)
+                .focused($searchFocused)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -326,7 +331,7 @@ private struct SavingsOpportunityRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("Save \(opportunity.savings.formatted(.currency(code: "USD"))) per unit")
+            Text("Save up to \(opportunity.savings.formatted(.currency(code: "USD"))) per unit")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Theme.mint)
         }
@@ -336,7 +341,7 @@ private struct SavingsOpportunityRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(opportunity.displayName), cheapest at \(opportunity.cheapestStoreName) for \(opportunity.cheapestPrice.formatted(.currency(code: "USD"))), save \(opportunity.savings.formatted(.currency(code: "USD")))")
+        .accessibilityLabel("\(opportunity.displayName), cheapest at \(opportunity.cheapestStoreName) for \(opportunity.cheapestPrice.formatted(.currency(code: "USD"))), save up to \(opportunity.savings.formatted(.currency(code: "USD")))")
     }
 }
 
@@ -530,15 +535,12 @@ private struct ItemCard: View {
 
     private func categoryIcon(_ category: String) -> String {
         switch category.lowercased() {
-        case "dairy":              return "drop.fill"
-        case "bakery":             return "birthday.cake.fill"
-        case "produce":            return "leaf.fill"
-        case "meat & seafood":     return "flame.fill"
-        case "pantry":             return "cabinet.fill"
-        case "beverages":          return "cup.and.saucer.fill"
-        case "snacks & frozen":    return "snowflake"
-        case "household":          return "house.fill"
-        default:                   return "cart.fill"
+        case "grocery":       return "cart.fill"
+        case "household":     return "house.fill"
+        case "clothing":      return "tshirt.fill"
+        case "electronics":   return "bolt.fill"
+        case "personal care": return "cross.case.fill"
+        default:              return "tag.fill"
         }
     }
 }
