@@ -12,7 +12,10 @@ struct PriceHistoryView: View {
 
     // Set by Dashboard "See All" button to deep-link into compare mode
     @AppStorage("price_compare_active") private var priceCompareActive = false
+    // Set by Dashboard price alert rows to deep-link to a specific item's detail view
+    @AppStorage("price_alert_item_id")  private var alertItemID: String = ""
     @FocusState private var searchFocused: Bool
+    @State private var navigationPath = NavigationPath()
 
     // MARK: - Enums
 
@@ -69,7 +72,7 @@ struct PriceHistoryView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ScrollView {
                 LazyVStack(spacing: 10) {
                     NavBarCurve()
@@ -87,6 +90,9 @@ struct PriceHistoryView: View {
             }
             .background(Theme.appBackground)
             .greenNavTitle("Price History")
+            .navigationDestination(for: GroceryItem.self) { item in
+                ItemDetailView(item: item)
+            }
         }
         .alert(
             "Delete \(itemToDelete?.name ?? "Item")?",
@@ -103,6 +109,16 @@ struct PriceHistoryView: View {
             }
         }
         .onAppear {
+            if !alertItemID.isEmpty {
+                let captured = alertItemID
+                alertItemID = ""  // clear immediately so re-appearing tab doesn't re-trigger
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if let match = items.first(where: { $0.name == captured }) {
+                        navigationPath = NavigationPath()
+                        navigationPath.append(match)
+                    }
+                }
+            }
             if priceCompareActive {
                 priceMode = .compare
                 priceCompareActive = false
@@ -171,7 +187,7 @@ struct PriceHistoryView: View {
             noResultsState
         } else {
             ForEach(sortedFilteredItems) { item in
-                NavigationLink(destination: ItemDetailView(item: item)) {
+                NavigationLink(value: item) {
                     ItemCard(item: item)
                 }
                 .buttonStyle(.plain)

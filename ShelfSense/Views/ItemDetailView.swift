@@ -365,6 +365,39 @@ private struct PriceEntryRow: View {
         entry.store?.name ?? entry.receipt?.storeName ?? "Unknown Store"
     }
 
+    // Returns the secondary detail string, or nil when nothing meaningful to add.
+    // Weighted (fractional qty): "1.40 lbs @ $1.99/lb"
+    // Multi-unit (integer qty > 1): "Qty: 2 · $2.99/unit"
+    // Single unit where unitPrice differs from total (e.g. per-oz): "$0.059/oz"
+    private var detailLine: String? {
+        let qty = entry.quantity
+        let isWhole = qty == floor(qty)
+        let upStored = entry.unitPrice
+        let ut = entry.unitType
+
+        let showForQty = qty > 1
+        let showForUnitPriceDiff = upStored.map { abs($0 - entry.price) > 0.005 } ?? false
+        guard showForQty || showForUnitPriceDiff else { return nil }
+
+        if !isWhole {
+            // Fractional quantity → weighted item
+            let up = upStored ?? (entry.price / max(qty, 0.001))
+            let unitLabel = ut ?? "unit"
+            return String(format: up < 0.10 ? "%.2f %@ @ $%.3f/%@" : "%.2f %@ @ $%.2f/%@",
+                          qty, unitLabel, up, unitLabel)
+        } else if qty > 1 {
+            // Integer quantity > 1 → multi-unit
+            let up = upStored ?? (entry.price / qty)
+            let unitLabel = ut ?? "unit"
+            return String(format: up < 0.10 ? "Qty: %d · $%.3f/%@" : "Qty: %d · $%.2f/%@",
+                          Int(qty), up, unitLabel)
+        } else {
+            // Single unit where AI reported a different per-unit price (e.g. per oz)
+            guard let up = upStored, let unitLabel = ut else { return nil }
+            return String(format: up < 0.10 ? "$%.3f/%@" : "$%.2f/%@", up, unitLabel)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             StoreAvatar(name: storeName, size: 36)
@@ -374,27 +407,23 @@ private struct PriceEntryRow: View {
                 Text(entry.date, format: .dateTime.month(.abbreviated).day().year())
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let detail = detailLine {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(entry.price, format: .currency(code: "USD"))
-                    .font(.subheadline.weight(.bold))
-                if entry.quantity > 1 {
-                    Text("Qty: \(entry.quantity, specifier: "%.0f")")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                if let up = entry.unitPrice, let ut = entry.unitType {
-                    Text(String(format: up < 0.10 ? "$%.3f/%@" : "$%.2f/%@", up, ut))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            Text(entry.price, format: .currency(code: "USD"))
+                .font(.subheadline.weight(.bold))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(storeName), \(entry.date.formatted(.dateTime.month().day().year())), \(entry.price.formatted(.currency(code: "USD")))")
+        .accessibilityLabel(
+            "\(storeName), \(entry.date.formatted(.dateTime.month().day().year())), \(entry.price.formatted(.currency(code: "USD")))"
+            + (detailLine.map { ", \($0)" } ?? "")
+        )
     }
 }
 

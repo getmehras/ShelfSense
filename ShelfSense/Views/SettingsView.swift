@@ -134,7 +134,7 @@ struct SettingsView: View {
         } header: {
             Text("Monthly Budget")
         } footer: {
-            Text("Set a monthly grocery spending goal to track progress on your dashboard. Leave empty to disable.")
+            Text("When set, your monthly budget and spend prediction will appear on the Dashboard.")
         }
     }
 

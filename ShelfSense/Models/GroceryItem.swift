@@ -17,7 +17,9 @@ final class GroceryItem {
     }
 
     var latestUnitPrice: Double? {
-        priceHistory.max(by: { $0.date < $1.date })?.unitPrice
+        guard let entry = priceHistory.max(by: { $0.date < $1.date }) else { return nil }
+        if let up = entry.unitPrice, up > 0 { return up }
+        return entry.price / (entry.quantity > 0 ? entry.quantity : 1)
     }
 
     var latestUnitType: String? {
@@ -29,8 +31,16 @@ final class GroceryItem {
         return sorted.count >= 2 ? sorted[1].price : nil
     }
 
+    var previousUnitPrice: Double? {
+        let sorted = priceHistory.sorted { $0.date > $1.date }
+        guard sorted.count >= 2 else { return nil }
+        let entry = sorted[1]
+        if let up = entry.unitPrice, up > 0 { return up }
+        return entry.price / (entry.quantity > 0 ? entry.quantity : 1)
+    }
+
     var priceChangePercent: Double? {
-        guard let latest = latestPrice, let previous = previousPrice, previous > 0 else { return nil }
+        guard let latest = latestUnitPrice, let previous = previousUnitPrice, previous > 0 else { return nil }
         return ((latest - previous) / previous) * 100
     }
 

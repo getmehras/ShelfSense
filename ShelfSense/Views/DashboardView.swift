@@ -9,9 +9,9 @@ struct DashboardView: View {
     @State private var isShowingSettings = false
     @State private var isShowingTrendDetail = false
     @AppStorage("selected_tab")        private var selectedTab = 0
-    @AppStorage("price_compare_active") private var priceCompareActive = false
+    @AppStorage("price_compare_active")  private var priceCompareActive = false
+    @AppStorage("price_alert_item_id")   private var alertItemID: String = ""
     @AppStorage("monthly_budget")        private var monthlyBudget: Double = 0
-    @AppStorage("budget_nudge_dismissed") private var nudgeDismissed: Bool = false
 
     private var allSavingsOpportunities: [PriceComparisonViewModel.SavingsOpportunity] {
         PriceComparisonViewModel.topSavingsOpportunities(from: groceryItems, limit: 10)
@@ -32,35 +32,38 @@ struct DashboardView: View {
                     if monthlyBudget > 0 {
                         budgetProgressCard
                             .padding(.horizontal, 16)
-                    } else if !receipts.isEmpty && !nudgeDismissed {
-                        budgetNudgeCard
-                            .padding(.horizontal, 16)
-                    }
-
-                    if let projected = viewModel.projectedMonthTotal {
-                        spendPredictionRow(projected: projected)
-                            .padding(.horizontal, 16)
+                        if let projected = viewModel.projectedMonthTotal {
+                            spendPredictionRow(projected: projected)
+                                .padding(.horizontal, 16)
+                        }
                     }
 
                     statChipsRow
 
-                    if !viewModel.monthlySpends.isEmpty {
-                        SectionHeader(title: "Spending Trend")
-                        monthlyTrendCard.padding(.horizontal, 16)
+                    if !viewModel.priceAlertItems.isEmpty {
+                        Text("Price Alerts")
+                            .font(.system(.headline, design: .rounded, weight: .semibold))
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                        priceAlertsSection
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
                     }
 
                     if totalCorrectSavings > 0 {
                         unifiedSavingsCard.padding(.horizontal, 16)
                     }
 
+                    if !viewModel.monthlySpends.isEmpty {
+                        SectionHeader(title: "Spending Trend")
+                        monthlyTrendCard.padding(.horizontal, 16)
+                    }
+
                     if !viewModel.storeSpends.isEmpty {
                         SectionHeader(title: "By Store")
                         storeBreakdownCard.padding(.horizontal, 16)
-                    }
-
-                    if !viewModel.priceAlertItems.isEmpty {
-                        SectionHeader(title: "Price Alerts")
-                        priceAlertsSection.padding(.horizontal, 16)
                     }
 
                     SectionHeader(title: "Recent Trips")
@@ -156,66 +159,6 @@ struct DashboardView: View {
                 ? "Over budget: spent \(spent.formatted(.currency(code: "USD"))) of \(budget.formatted(.currency(code: "USD"))) monthly budget"
                 : "Budget: \(spent.formatted(.currency(code: "USD"))) of \(budget.formatted(.currency(code: "USD"))) spent this month"
         )
-    }
-
-    // MARK: - Budget Nudge Card
-
-    private var budgetNudgeCard: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Theme.mint.opacity(0.12))
-                    .frame(width: 40, height: 40)
-                Image(systemName: "target")
-                    .font(.body)
-                    .foregroundStyle(Theme.mint)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Set a monthly budget")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color(.label))
-                Text("Track your spending against a goal")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
-                isShowingSettings = true
-            } label: {
-                Text("Set up")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Theme.mint)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                nudgeDismissed = true
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(6)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss budget prompt")
-        }
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Theme.mint.opacity(0.25), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Set a monthly budget to track your spending against a goal")
     }
 
     // MARK: - Spend Prediction Row
@@ -430,11 +373,11 @@ struct DashboardView: View {
                         .foregroundStyle(Theme.mint)
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(totalCorrectSavings, format: .currency(code: "USD"))
+                    Text("Save up to \(totalCorrectSavings.formatted(.currency(code: "USD"))) this trip")
                         .font(.title3.weight(.bold))
                         .foregroundStyle(Color(.label))
                     let count = allSavingsOpportunities.count
-                    Text("potential savings per trip · \(count) deal\(count == 1 ? "" : "s") found")
+                    Text("\(count) deal\(count == 1 ? "" : "s") found · potential savings per trip")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -444,7 +387,12 @@ struct DashboardView: View {
                     .foregroundStyle(Color(.tertiaryLabel))
             }
             .padding(16)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(
+                ZStack {
+                    Color(.secondarySystemGroupedBackground)
+                    Theme.mint.opacity(0.08)
+                }
+            )
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay {
                 RoundedRectangle(cornerRadius: 12)
@@ -454,23 +402,72 @@ struct DashboardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Savings opportunity: \(totalCorrectSavings.formatted(.currency(code: "USD"))) potential savings per trip, \(allSavingsOpportunities.count) deals found. Tap to view in Stores tab.")
+        .accessibilityLabel("Save up to \(totalCorrectSavings.formatted(.currency(code: "USD"))) this trip, \(allSavingsOpportunities.count) deals found. Tap to view in Stores tab.")
     }
 
     // MARK: - Price Alerts
 
     private var priceAlertsSection: some View {
-        VStack(spacing: 0) {
-            ForEach(viewModel.priceAlertItems) { item in
-                AlertItemRow(item: item)
-                if item.id != viewModel.priceAlertItems.last?.id {
-                    Divider().padding(.horizontal, 16)
-                }
+        let items = viewModel.priceAlertItems
+        let isSingle = items.count == 1
+        return Button {
+            if isSingle, let item = items.first {
+                alertItemID = item.name
             }
+            selectedTab = 2
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.orange.opacity(0.12))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    if isSingle, let item = items.first {
+                        Text("\(item.name) price increased\(item.priceChangePercent.map { String(format: " +%.0f%%", $0) } ?? "")")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(.label))
+                        Text("tap to view price history")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(items.count) price changes since your last scan")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color(.label))
+                        Text("tap to review in Price History")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(.tertiaryLabel))
+            }
+            .padding(16)
+            .background(
+                ZStack {
+                    Color(.secondarySystemGroupedBackground)
+                    Color.orange.opacity(0.08)
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
         }
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            isSingle
+                ? "\(items.first?.name ?? ""), price up \(items.first?.priceChangePercent.map { String(format: "%.0f%%", $0) } ?? ""). Tap to view price history."
+                : "\(items.count) price changes since your last scan. Tap to review in Price History."
+        )
     }
 
     // MARK: - Recent Trips
@@ -529,42 +526,6 @@ struct DashboardView: View {
 }
 
 // MARK: - Subviews
-
-private struct AlertItemRow: View {
-    let item: GroceryItem
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color.orange.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.name)
-                    .font(.subheadline.weight(.semibold))
-                if let latest = item.latestPrice, let previous = item.previousPrice {
-                    Text("\(previous, format: .currency(code: "USD")) → \(latest, format: .currency(code: "USD"))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if let change = item.priceChangePercent {
-                Text("+\(change, specifier: "%.0f")%")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.orange)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.name), price up \(item.priceChangePercent.map { String(format: "%.0f%%", $0) } ?? "")")
-    }
-}
 
 private struct TripRow: View {
     let receipt: Receipt
