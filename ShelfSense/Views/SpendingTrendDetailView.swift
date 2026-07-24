@@ -70,7 +70,8 @@ struct SpendingBarChart: View {
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { drag in
-                                let plotFrame = geo[proxy.plotAreaFrame]
+                                guard let anchor = proxy.plotFrame else { return }
+                                let plotFrame = geo[anchor]
                                 let xPos = drag.location.x - plotFrame.origin.x
                                 guard !data.isEmpty, plotFrame.width > 0 else { return }
                                 let fraction = max(0.0, min(1.0, Double(xPos / plotFrame.width)))

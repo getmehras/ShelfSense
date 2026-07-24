@@ -5,56 +5,34 @@ import SwiftData
 final class ScanViewModel {
     var isShowingCamera = false
     var isShowingReview = false
-    var isShowingDebug = false
     var isProcessing = false
     var isUsingAI = false
     var parsedReceipt: ParsedReceipt?
-    var lastDebugInfo: ParseDebugInfo?
     var errorMessage: String?
     var scanValidationError: ReceiptScanValidator.FailureReason? = nil
 
     private let parser = ReceiptParser()
 
-    private var debugModeOn: Bool {
-        UserDefaults.standard.bool(forKey: "showParseDebug")
-    }
-
     func processScannedImages(_ images: [UIImage]) {
         isShowingCamera = false
         isProcessing = true
-        isUsingAI = ScanLimitManager.shared.hasAIScansRemaining && !debugModeOn
+        isUsingAI = ScanLimitManager.shared.hasAIScansRemaining
         Task {
-            if debugModeOn {
-                let (result, debugInfo) = await parser.parseWithDebug(images: images)
-                parsedReceipt = result
-                lastDebugInfo = debugInfo
-                isProcessing = false
-                isUsingAI = false
-                isShowingDebug = true
-            } else {
-                let scanResult = await parser.parse(images: images)
-                isProcessing = false
-                switch scanResult {
-                case .success(let receipt):
-                    parsedReceipt = receipt
-                    isUsingAI = receipt.usedAI
-                    isShowingReview = !receipt.items.isEmpty
-                    if receipt.items.isEmpty {
-                        errorMessage = "No items could be detected. Try scanning again or use manual entry."
-                    }
-                case .validationFailed(let reason):
-                    scanValidationError = reason
-                case .backendError(let message):
-                    errorMessage = message
+            let scanResult = await parser.parse(images: images)
+            isProcessing = false
+            switch scanResult {
+            case .success(let receipt):
+                parsedReceipt = receipt
+                isUsingAI = receipt.usedAI
+                isShowingReview = !receipt.items.isEmpty
+                if receipt.items.isEmpty {
+                    errorMessage = "No items could be detected. Try scanning again or use manual entry."
                 }
+            case .validationFailed(let reason):
+                scanValidationError = reason
+            case .backendError(let message):
+                errorMessage = message
             }
-        }
-    }
-
-    func proceedToReviewFromDebug() {
-        isShowingDebug = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            self.isShowingReview = !(self.parsedReceipt?.items.isEmpty ?? true)
         }
     }
 

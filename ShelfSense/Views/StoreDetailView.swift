@@ -404,7 +404,6 @@ private struct StoreItemRow: View {
             }
 
             trendView
-                .frame(width: 18)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
@@ -421,14 +420,14 @@ private struct StoreItemRow: View {
             Image(systemName: "arrow.up")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.red)
+                .frame(width: 18)
         case .down:
             Image(systemName: "arrow.down")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Theme.mint)
+                .frame(width: 18)
         case .flat:
-            Text("—")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Color.clear.frame(width: 18)
         }
     }
 }

@@ -3,7 +3,6 @@ import SwiftUI
 struct ScanView: View {
     @State private var viewModel = ScanViewModel()
     @ObservedObject private var scanLimit = ScanLimitManager.shared
-    @AppStorage("showParseDebug")  private var showParseDebug = false
     @AppStorage("scan_tips_shown") private var scanTipsShown = false
     @State private var showScanTips = false
 
@@ -21,17 +20,6 @@ struct ScanView: View {
                 }
             }
             .greenNavTitle("Scan Receipt")
-            .safeAreaInset(edge: .top) {
-                if showParseDebug {
-                    Label("Debug mode active — AI disabled", systemImage: "ant.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.orange)
-                }
-            }
         }
         .fullScreenCover(isPresented: $viewModel.isShowingCamera) {
             DocumentCameraView(
@@ -43,16 +31,6 @@ struct ScanView: View {
         .sheet(isPresented: $viewModel.isShowingReview) {
             if let receipt = viewModel.parsedReceipt {
                 ReviewReceiptView(viewModel: viewModel, receipt: receipt)
-            }
-        }
-        .sheet(isPresented: $viewModel.isShowingDebug) {
-            if let info = viewModel.lastDebugInfo {
-                ParseDebugSheet(
-                    info: info,
-                    itemCount: viewModel.parsedReceipt?.items.count ?? 0,
-                    onReview: { viewModel.proceedToReviewFromDebug() },
-                    onDismiss: { viewModel.isShowingDebug = false }
-                )
             }
         }
         // Scan quality error sheet

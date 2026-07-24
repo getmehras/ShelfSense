@@ -98,6 +98,10 @@ struct PriceComparisonViewModel {
         return Array(latestByStore.values)
     }
 
+    // MARK: - Constants
+
+    static let maxPriceRatioForComparison: Double = 3.0
+
     // MARK: - Top savings (State A & Dashboard)
 
     static func topSavingsOpportunities(
@@ -112,6 +116,7 @@ struct PriceComparisonViewModel {
             guard let minPrice = prices.min(), let maxPrice = prices.max() else { return nil }
             let savings = maxPrice - minPrice
             guard savings >= 0.05 else { return nil }
+            guard minPrice > 0, maxPrice / minPrice <= Self.maxPriceRatioForComparison else { return nil }
 
             let cheapest = rows.min(by: { $0.price < $1.price })!
             let mostExpensive = rows.max(by: { $0.price < $1.price })!

@@ -7,18 +7,10 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("monthly_budget")       private var monthlyBudget: Double = 0
-    @AppStorage("debugModeUnlocked") private var debugModeUnlocked = false
-    @AppStorage("showParseDebug") private var showParseDebug = false
     @State private var authStatus: UNAuthorizationStatus = .notDetermined
-    @State private var versionTapCount = 0
-    @State private var showUnlockedBanner = false
-    @State private var debugToast: String? = nil
     @State private var budgetInput: String = ""
     @FocusState private var budgetFieldFocused: Bool
     @ObservedObject private var scanLimit = ScanLimitManager.shared
-    @AppStorage(ScanMetrics.keyAttempts) private var metricsAttempts = 0
-    @AppStorage(ScanMetrics.keyFailures) private var metricsFailures = 0
-    @AppStorage(ScanMetrics.keyApiCalls) private var metricsApiCalls = 0
 
     @Query private var allReceipts: [Receipt]
 
@@ -30,9 +22,6 @@ struct SettingsView: View {
                 aiScanningSection
                 dataSummarySection
                 aboutSection
-                if debugModeUnlocked {
-                    debugSection
-                }
             }
             .greenNavTitle("Settings")
             .toolbar {
@@ -42,34 +31,6 @@ struct SettingsView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .overlay(alignment: .top) {
-                if showUnlockedBanner {
-                    Text("🛠 Developer mode unlocked")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Theme.primary)
-                        .clipShape(Capsule())
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut(duration: 0.3), value: showUnlockedBanner)
-            .overlay(alignment: .bottom) {
-                if let msg = debugToast {
-                    Text(msg)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.orange)
-                        .clipShape(Capsule())
-                        .padding(.bottom, 24)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: debugToast)
         }
         .task {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
@@ -242,103 +203,9 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section("About") {
-            // Tapping version 5 times unlocks debug mode
-            Button {
-                versionTapCount += 1
-                if versionTapCount >= 5 {
-                    versionTapCount = 0
-                    guard !debugModeUnlocked else { return }
-                    debugModeUnlocked = true
-                    showUnlockedBanner = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        showUnlockedBanner = false
-                    }
-                }
-            } label: {
-                LabeledContent("Version", value: appVersion)
-                    .foregroundStyle(Color(.label))
-            }
-            .buttonStyle(.plain)
-
+            LabeledContent("Version", value: appVersion)
             LabeledContent("Build", value: buildNumber)
         }
-    }
-
-    // MARK: - Debug Section (hidden until unlocked)
-
-    private var debugSection: some View {
-        Group {
-            Section {
-                LabeledContent("Total Scans Attempted", value: "\(metricsAttempts)")
-                LabeledContent("Validation Failures", value: "\(metricsFailures)")
-                LabeledContent("API Calls Made", value: "\(metricsApiCalls)")
-                LabeledContent("API Calls Saved", value: "\(ScanMetrics.apiCallsSaved)")
-                    .foregroundStyle(metricsFailures > 0 ? Theme.mint : .secondary)
-            } header: {
-                Text("Cost Savings")
-            } footer: {
-                Text("API calls saved: \(ScanMetrics.apiCallsSaved) of \(metricsAttempts) scan attempts caught by pre-validation.")
-            }
-
-            Section {
-                Toggle(isOn: $showParseDebug) {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Show Parse Debug Info")
-                                .font(.body)
-                            Text("After each scan, show OCR output and parse decisions")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "ant.fill")
-                            .foregroundStyle(.orange)
-                    }
-                }
-                .tint(.orange)
-
-                Button(role: .destructive) {
-                    debugModeUnlocked = false
-                    showParseDebug = false
-                } label: {
-                    Label("Hide Debug Section", systemImage: "eye.slash")
-                        .font(.subheadline)
-                }
-            } header: {
-                Text("Developer")
-            } footer: {
-                Text("Debug mode shows raw Vision OCR output and explains why each line was accepted or rejected.")
-            }
-
-            #if DEBUG
-            Section {
-                Button {
-                    ScanLimitManager.shared.setScansForDebug(ScanLimitManager.freeLimit)
-                    flashToast("Scan limit set to \(ScanLimitManager.freeLimit)/\(ScanLimitManager.freeLimit)")
-                } label: {
-                    Label("Simulate \(ScanLimitManager.freeLimit) Scans Used", systemImage: "arrow.up.circle")
-                        .font(.subheadline)
-                }
-                .foregroundStyle(.orange)
-
-                Button {
-                    ScanLimitManager.shared.setScansForDebug(0)
-                    flashToast("Scan count reset to 0")
-                } label: {
-                    Label("Reset Scan Count to 0", systemImage: "arrow.counterclockwise.circle")
-                        .font(.subheadline)
-                }
-                .foregroundStyle(.orange)
-            } header: {
-                Text("Scan Limit Testing")
-            }
-            #endif
-        }
-    }
-
-    private func flashToast(_ message: String) {
-        debugToast = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { debugToast = nil }
     }
 
     private var appVersion: String {

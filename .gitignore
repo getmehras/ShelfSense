@@ -20,6 +20,10 @@ DerivedData/
 # Supabase credentials — never commit; config stays local only
 ShelfSense/Config/SupabaseConfig.swift
 
+# Claude Code agent memory — local only
+.claude/
+ShelfSense/.claude/
+
 # Fastlane (if added later)
 fastlane/report.xml
 fastlane/Preview.html

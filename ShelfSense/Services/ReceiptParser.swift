@@ -14,8 +14,6 @@ struct ReceiptParser {
     // MARK: - Public API
 
     nonisolated func parse(images: [UIImage]) async -> ScanParseResult {
-        ScanMetrics.increment(ScanMetrics.keyAttempts)
-
         var allLines: [String] = []
         var allConfidences: [Float] = []
 
@@ -37,7 +35,6 @@ struct ReceiptParser {
             averageConfidence: avgConfidence
         )
         if case .failed(let reason) = validation {
-            ScanMetrics.increment(ScanMetrics.keyFailures)
             return .validationFailed(reason)
         }
 
@@ -57,42 +54,10 @@ struct ReceiptParser {
             ))
         } catch BackendReceiptParser.ParserError.invalidURL {
             // Config/programmer error — don't expose internal detail to the user
-            ScanMetrics.increment(ScanMetrics.keyFailures)
             return .backendError("Something went wrong. Please try again.")
         } catch {
-            ScanMetrics.increment(ScanMetrics.keyFailures)
             return .backendError(error.localizedDescription)
         }
-    }
-
-    // Debug mode skips validation so developers can inspect any OCR output.
-    nonisolated func parseWithDebug(images: [UIImage]) async -> (ParsedReceipt, ParseDebugInfo) {
-        var allLines: [String] = []
-        for image in images {
-            let (lines, _) = await recognizeText(in: image)
-            allLines.append(contentsOf: lines)
-        }
-        let storeName = extractStoreName(from: allLines)
-        let detectedTotal = extractTotal(from: allLines)
-        let collector = DebugCollector()
-        let items = SmartReceiptParser.parse(lines: allLines, storeName: storeName,
-                                             collector: collector)
-        let receipt = ParsedReceipt(storeName: storeName, items: items,
-                                    detectedTotal: detectedTotal)
-        let debugInfo = ParseDebugInfo(
-            rawLines: allLines,
-            storeName: storeName,
-            detectedTotal: detectedTotal,
-            acceptedItems: collector.accepted.map {
-                ParseDebugInfo.AcceptedItem(originalLine: $0.line,
-                                            cleanedName: $0.name,
-                                            price: $0.price)
-            },
-            rejectedLines: collector.rejected.map {
-                ParseDebugInfo.RejectedLine(text: $0.text, reason: $0.reason)
-            }
-        )
-        return (receipt, debugInfo)
     }
 
     // MARK: - Smart routing
@@ -107,7 +72,6 @@ struct ReceiptParser {
         let limiter = ScanLimitManager.shared
 
         if limiter.hasAIScansRemaining {
-            ScanMetrics.increment(ScanMetrics.keyApiCalls)
             do {
                 let result = try await BackendReceiptParser.parse(
                     rawOCRText: redactSensitiveLines(from: rawText),

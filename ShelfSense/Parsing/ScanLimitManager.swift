@@ -25,14 +25,6 @@ class ScanLimitManager: ObservableObject {
         }
     }
 
-    // Force a month rollover for testing the reset logic
-    func simulateNewMonth() {
-        let nextMonth = (Calendar.current.component(.month, from: Date()) % 12) + 1
-        defaults.set(nextMonth, forKey: "ai_scan_month")
-        resetIfNewMonth()
-        scansUsed = defaults.integer(forKey: "ai_scans_used")
-    }
-
     var hasAIScansRemaining: Bool {
         scansUsed < ScanLimitManager.freeLimit
     }
@@ -47,13 +39,6 @@ class ScanLimitManager: ObservableObject {
         scansUsed += 1
         defaults.set(scansUsed, forKey: "ai_scans_used")
     }
-
-    #if DEBUG
-    func setScansForDebug(_ count: Int) {
-        scansUsed = count
-        defaults.set(count, forKey: "ai_scans_used")
-    }
-    #endif
 
     var statusText: String {
         if hasAIScansRemaining {

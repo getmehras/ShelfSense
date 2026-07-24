@@ -295,9 +295,17 @@ struct ReviewReceiptView: View {
 private struct ItemReviewRow: View {
     @Binding var item: ParsedReceiptItem
     var autoFocus: Bool = false
-    @State private var priceText: String = ""
+    @State private var priceText: String
     @FocusState private var nameFocused: Bool
     @FocusState private var priceFocused: Bool
+
+    init(item: Binding<ParsedReceiptItem>, autoFocus: Bool = false) {
+        self._item = item
+        self.autoFocus = autoFocus
+        self._priceText = State(initialValue: item.wrappedValue.price == 0
+            ? ""
+            : String(format: "%.2f", item.wrappedValue.price))
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -344,37 +352,67 @@ private struct ItemReviewRow: View {
                         subCategoryMenuButton
                     }
                 }
-
-                if item.quantity > 1 {
-                    Text("Qty: \(item.quantity, specifier: "%.0f")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             Spacer()
 
-            TextField("0.00", text: $priceText)
-                .multilineTextAlignment(.trailing)
-                .keyboardType(.decimalPad)
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 72)
-                .padding(.top, 2)
-                .accessibilityLabel("Item price")
-                .focused($priceFocused)
-                .onAppear {
-                    priceText = item.price == 0 ? "" : String(format: "%.2f", item.price)
-                }
-                .onChange(of: priceText) { _, newVal in
-                    let filtered = newVal.filter { $0.isNumber || $0 == "." }
-                    if filtered != newVal { priceText = filtered }
-                    item.price = Double(filtered) ?? 0
-                }
-                .onChange(of: priceFocused) { _, focused in
-                    if !focused {
-                        priceText = item.price == 0 ? "" : String(format: "%.2f", item.price)
+            VStack(alignment: .trailing, spacing: 4) {
+                TextField("0.00", text: $priceText)
+                    .multilineTextAlignment(.trailing)
+                    .keyboardType(.decimalPad)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 72)
+                    .accessibilityLabel("Item price")
+                    .focused($priceFocused)
+                    .onChange(of: priceText) { _, newVal in
+                        let filtered = newVal.filter { $0.isNumber || $0 == "." }
+                        if filtered != newVal { priceText = filtered }
+                        if let parsed = Double(filtered), parsed > 0 {
+                            item.price = parsed
+                        }
                     }
+                    .onChange(of: priceFocused) { _, focused in
+                        if !focused {
+                            priceText = item.price == 0 ? "" : String(format: "%.2f", item.price)
+                        }
+                    }
+
+                HStack(spacing: 6) {
+                    Button {
+                        if item.quantity > 1 { item.quantity -= 1 }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(item.quantity > 1 ? Theme.primary : Color(.tertiaryLabel))
+                            .font(.body)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(item.quantity <= 1)
+                    .accessibilityLabel("Decrease quantity")
+
+                    Text("\(Int(item.quantity))")
+                        .font(.subheadline.weight(.medium))
+                        .frame(minWidth: 20, alignment: .center)
+                        .accessibilityLabel("Quantity \(Int(item.quantity))")
+
+                    Button {
+                        if item.quantity < 99 { item.quantity += 1 }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(Theme.primary)
+                            .font(.body)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(item.quantity >= 99)
+                    .accessibilityLabel("Increase quantity")
                 }
+
+                if item.quantity > 1, item.price > 0 {
+                    Text("\(item.price / item.quantity, format: .currency(code: "USD")) each")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 2)
         }
         .opacity(item.isIncluded ? 1 : 0.4)
     }

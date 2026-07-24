@@ -46,6 +46,10 @@ final class GroceryItem {
 
     var isPriceAlert: Bool {
         guard (priceChangePercent ?? 0) > 10 else { return false }
+        // 3x+ unit price jump almost certainly means a package size change, not a real spike
+        if let latest = latestUnitPrice, let previous = previousUnitPrice, previous > 0 {
+            guard latest / previous <= Self.maxPriceRatioForAlert else { return false }
+        }
         // Suppress if the user already dismissed this alert after the latest price entry
         guard let latestDate = priceHistory.max(by: { $0.date < $1.date })?.date else { return false }
         if let dismissed = lastAlertDismissedDate, dismissed >= latestDate { return false }
@@ -76,6 +80,8 @@ final class GroceryItem {
         }
         return nil
     }
+
+    static let maxPriceRatioForAlert: Double = 3.0
 
     init(name: String, normalizedName: String, category: String = ItemCategory.grocery.rawValue, subCategory: String? = nil) {
         self.name = name

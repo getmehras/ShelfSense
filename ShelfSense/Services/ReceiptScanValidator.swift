@@ -117,20 +117,3 @@ struct ReceiptScanValidator {
     // Stub — confidence is computed in ReceiptParser where VNRecognizedTextObservation is available
     static func averageConfidence(from observations: [Any]) -> Float { 1.0 }
 }
-
-// MARK: - Scan Metrics
-
-struct ScanMetrics {
-    static let keyAttempts = "scan_total_attempts"
-    static let keyFailures = "scan_validation_failures"
-    static let keyApiCalls = "scan_api_calls_made"
-
-    static var totalAttempts:      Int { UserDefaults.standard.integer(forKey: keyAttempts) }
-    static var validationFailures: Int { UserDefaults.standard.integer(forKey: keyFailures) }
-    static var apiCallsMade:       Int { UserDefaults.standard.integer(forKey: keyApiCalls) }
-    static var apiCallsSaved:      Int { validationFailures }
-
-    static func increment(_ key: String) {
-        UserDefaults.standard.set(UserDefaults.standard.integer(forKey: key) + 1, forKey: key)
-    }
-}

@@ -1,19 +1,5 @@
 import Foundation
 
-// MARK: - Debug Collector (reference type so it mutates through static calls)
-
-final class DebugCollector {
-    var rejected: [(text: String, reason: String)] = []
-    var accepted: [(line: String, name: String, price: Double)] = []
-
-    func reject(_ line: String, _ reason: String) {
-        rejected.append((line, reason))
-    }
-    func accept(_ line: String, name: String, price: Double) {
-        accepted.append((line, name, price))
-    }
-}
-
 // MARK: - Parser Hint
 
 struct ParserHint {
@@ -84,8 +70,7 @@ final class SmartReceiptParser {
 
     // MARK: - Main entry point
 
-    static func parse(lines: [String], storeName: String = "",
-                      collector: DebugCollector? = nil) -> [ParsedReceiptItem] {
+    static func parse(lines: [String], storeName: String = "") -> [ParsedReceiptItem] {
         let hint = detectHint(for: storeName)
         var items: [ParsedReceiptItem] = []
         var previousLine = ""
@@ -95,7 +80,6 @@ final class SmartReceiptParser {
             let upper = trimmed.uppercased()
 
             guard !shouldSkipLine(upper) else {
-                collector?.reject(trimmed, "skip keyword")
                 previousLine = trimmed
                 continue
             }
@@ -119,7 +103,6 @@ final class SmartReceiptParser {
             }
 
             guard price > 0.01, price < 2000 else {
-                collector?.reject(trimmed, "price out of range (\(price))")
                 previousLine = trimmed
                 continue
             }
@@ -127,7 +110,6 @@ final class SmartReceiptParser {
             let rawName = extractName(from: trimmed, fallback: previousLine, hint: hint)
 
             guard let cleanName = cleanItemName(rawName, hint: hint), cleanName.count > 3 else {
-                collector?.reject(trimmed, "name too short or uncleanable (raw: \"\(rawName)\")")
                 previousLine = trimmed
                 continue
             }
@@ -141,8 +123,6 @@ final class SmartReceiptParser {
                 unitPrice: unitInfo?.unitPrice,
                 unitType: unitInfo?.baseUnit
             ))
-            collector?.accept(trimmed, name: cleanName, price: price)
-
             previousLine = trimmed
         }
 
@@ -150,7 +130,7 @@ final class SmartReceiptParser {
         // Vision OCR returns all item names first, then all prices as standalone lines.
         // Try pairing them positionally.
         if items.count < 3 {
-            let paired = tryColumnPairing(lines: lines, hint: hint, collector: collector)
+            let paired = tryColumnPairing(lines: lines, hint: hint)
             if paired.count > items.count {
                 return removeDuplicates(paired)
             }
@@ -196,8 +176,7 @@ final class SmartReceiptParser {
         return false
     }
 
-    static func tryColumnPairing(lines: [String], hint: ParserHint?,
-                                 collector: DebugCollector? = nil) -> [ParsedReceiptItem] {
+    static func tryColumnPairing(lines: [String], hint: ParserHint?) -> [ParsedReceiptItem] {
         var nameLines: [String] = []
         var priceLines: [String] = []
         // Once the right-column price block starts, any following text is the
@@ -262,7 +241,6 @@ final class SmartReceiptParser {
                 unitPrice: unitInfo?.unitPrice,
                 unitType: unitInfo?.baseUnit
             ))
-            collector?.accept("[\(nameLine)] + [\(priceLine)]", name: cleanName, price: price)
         }
 
         return items
